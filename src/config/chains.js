@@ -1,7 +1,9 @@
 const chains = {
   defaultChain: [
-    { groupId: 1, label: "Technical Review (Test 1)", deadline: 7 },
-    { groupId: 2, label: "Final Approval (Test 2)", deadline: 5 },
+    { groupId: 1, label: "GAM Author Review", deadline: 30 },
+    { groupId: 2, label: "GAM Reviewer Review", deadline: 30 },
+    { groupId: 3, label: "GAM Approver Review", deadline: 30 },
+    { groupId: 4, label: "Auditor Review", deadline: 30 },
   ],
   publicationOverrides: {},
 };
