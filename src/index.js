@@ -28,14 +28,14 @@ app.post("/webhooks/review-approved", async (req, res) => {
   console.log(`[webhook] Payload:`, JSON.stringify(req.body, null, 2));
 
   try {
-    const result = await chainHandler.handleApproval(req.body);
+    const result = await chainHandler.handleWebhook(req.body);
 
     if (result) {
-      console.log(`[webhook] Next stage created`);
-      res.status(200).json({ status: "next_stage_created", result });
+      console.log(`[webhook] Action taken`);
+      res.status(200).json({ status: "action_taken", result });
     } else {
-      console.log(`[webhook] Chain complete or skipped`);
-      res.status(200).json({ status: "chain_complete" });
+      console.log(`[webhook] No action needed`);
+      res.status(200).json({ status: "no_action" });
     }
   } catch (error) {
     console.error("[webhook] Error:", error.message);
