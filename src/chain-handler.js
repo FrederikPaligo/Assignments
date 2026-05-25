@@ -44,7 +44,17 @@ class ChainHandler {
     if (nextIndex >= chain.length) {
       console.log(`[chain] Review chain complete — all stages done.`);
       delete this._stageTracker[key];
-      return null;
+
+      // Tag the document when chain completes (group 4 approved)
+      if (chain.completionTaxonomyId) {
+        try {
+          await this.paligo.addTaxonomyToDocument(documentId, chain.completionTaxonomyId);
+        } catch (e) {
+          console.error(`[chain] Failed to add taxonomy: ${e.message}`);
+        }
+      }
+
+      return { message: "Chain complete. Taxonomy applied." };
     }
 
     const stage = chain[nextIndex];
@@ -63,20 +73,20 @@ class ChainHandler {
   async _handleRejection(key, chain, documentId, lang) {
     const currentStage = this._stageTracker[key];
 
-    // Only act if the last stage (Auditor) rejects — send back to rejectionTarget
-    const lastStageIndex = chain.length - 1;
-    if (currentStage !== lastStageIndex) {
-      console.log(`[chain] Rejection at stage ${(currentStage || 0) + 1} — not the final stage, ignoring.`);
+    // Check if the rejecting stage is configured to send back
+    const rejectingStageConfig = chain[currentStage];
+    if (!rejectingStageConfig || !rejectingStageConfig.rejectionTarget) {
+      console.log(`[chain] Rejection at stage ${(currentStage || 0) + 1} — no rejection rule, ignoring.`);
       return null;
     }
 
-    const rejectionTargetIndex = chain.rejectionTargetIndex !== undefined ? chain.rejectionTargetIndex : 1;
-    const target = chain[rejectionTargetIndex];
+    const targetIndex = rejectingStageConfig.rejectionTarget;
+    const target = chain[targetIndex];
 
-    console.log(`[chain] Final stage rejected → sending back to stage ${rejectionTargetIndex + 1}: "${target.label}"`);
+    console.log(`[chain] Stage ${currentStage + 1} rejected → sending back to stage ${targetIndex + 1}: "${target.label}"`);
 
-    // Reset tracker to the rejection target so the chain continues from there
-    this._stageTracker[key] = rejectionTargetIndex;
+    // Reset tracker so chain continues from the target
+    this._stageTracker[key] = targetIndex;
 
     return await this.paligo.createReviewAssignment({
       documentId,
@@ -84,7 +94,7 @@ class ChainHandler {
       label: target.label,
       deadline: target.deadline,
       lang,
-      message: `Returned for revision: ${target.label} (sent back by ${chain[lastStageIndex].label})`,
+      message: `Returned for revision: ${target.label} (sent back by ${rejectingStageConfig.label})`,
     });
   }
 }
