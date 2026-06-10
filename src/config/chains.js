@@ -1,20 +1,27 @@
 /**
  * Review Chain Configuration — Allianz Instance
  *
- * Each stage has:
- *   - groupId:          Paligo usergroup ID to assign the review to
- *   - label:            human-readable name for logging / assignment messages
- *   - deadline:         days from creation for the review deadline
- *   - type:             assignment type ("review" or "contribution"), defaults to "review"
- *   - rejectionTarget:  (optional) stage INDEX to jump back to on rejection
+ * FLOW:
+ *   1. User MANUALLY creates a review assignment for Group 1
+ *   2. Automation kicks in after Group 1 acts:
+ *      - Approved → auto-create review for Group 2
+ *      - Rejected → auto-create contribution for the original author
+ *   3. If author completes contribution → auto-create review for Group 1 again
+ *   4. Chain continues: Group 2 → Group 3 → Group 4 → Complete
  *
- * Rejection rules (confirmed by client):
- *   - Group 2 (GAM Reviewer)  rejects → back to Group 1 (GAM Author)
- *   - Group 3 (GAM Approver)  rejects → back to Group 2 (GAM Reviewer)
- *   - Group 4 (Auditor)       rejects → back to Group 2 (GAM Reviewer)
+ * Each stage:
+ *   - groupId:          Paligo usergroup ID
+ *   - label:            human-readable name
+ *   - deadline:         days for the deadline
+ *   - rejectionTarget:  stage INDEX to revert to, or "author" for contribution to original issuer
  *
- * On completion (Group 4 approves): tag document with taxonomy 3062
- * ("Staging for Release").
+ * Rejection rules:
+ *   - Group 1 rejects → contribution assignment to the original author (issuer)
+ *   - Group 2 rejects → review back to Group 1
+ *   - Group 3 rejects → review back to Group 2
+ *   - Group 4 rejects → review back to Group 2
+ *
+ * On completion (Group 4 approves): tag document with taxonomy 3062.
  */
 
 const chains = {
@@ -24,32 +31,30 @@ const chains = {
         groupId: 1,
         label: "GAM Author Review",
         deadline: 30,
-        type: "contribution",   // Group 1 is an author — uses contribution assignment
-        // No rejectionTarget: stage 0 can't reject further back
+        rejectionTarget: "author",  // Reject → contribution to original author
       },
       {
         groupId: 2,
         label: "GAM Reviewer Review",
         deadline: 30,
-        rejectionTarget: 0,     // Reject → back to Group 1 (GAM Author)
+        rejectionTarget: 0,         // Reject → back to Group 1
       },
       {
         groupId: 3,
         label: "GAM Approver Review",
         deadline: 30,
-        rejectionTarget: 1,     // Reject → back to Group 2 (GAM Reviewer)
+        rejectionTarget: 1,         // Reject → back to Group 2
       },
       {
         groupId: 4,
         label: "Auditor Review",
         deadline: 30,
-        rejectionTarget: 1,     // Reject → back to Group 2 (GAM Reviewer)
+        rejectionTarget: 1,         // Reject → back to Group 2
       },
     ],
     { completionTaxonomyId: 3062 }
   ),
 
-  // Per-document overrides — keyed by document ID (as string).
   publicationOverrides: {},
 };
 
