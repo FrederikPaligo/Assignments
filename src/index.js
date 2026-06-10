@@ -96,14 +96,14 @@ app.get("/health", (req, res) => {
     status: "ok",
     service: "paligo-review-chain",
     instance: process.env.PALIGO_INSTANCE,
-    version: "2.0.0",
+    version: "3.0.0",
   });
 });
 
 // ── Start ─────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n[server] ═══════════════════════════════════════`);
-  console.log(`[server] Paligo Review Chain v2 on port ${PORT}`);
+  console.log(`[server] Paligo Review Chain v3 on port ${PORT}`);
   console.log(`[server] Instance: ${process.env.PALIGO_INSTANCE}`);
   console.log(`[server] Endpoints:`);
   console.log(`[server]   POST /webhooks/review-approved  (webhook)`);
