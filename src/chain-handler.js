@@ -14,6 +14,7 @@
  *   - Assignment cleanup: delete all assignments for a document on chain completion
  *   - Taxonomy removal: strip "Staging for Release" tag when a new cycle starts
  *   - Audit logging: full assignment details logged before deletion
+ *   v4.1: Persistent audit logging to GitHub (audit-log.json)
  *
  * State tracker stores per document:
  *   { stage: number | "author_revision", issuerId: number, issuerName: string }
@@ -32,7 +33,7 @@ const { getChainForPublication } = require("./config/chains");
 class ChainHandler {
   constructor(paligoClient) {
     this.paligo = paligoClient;
-    this._stageTracker = {};      // docId -> { stage, issuerId, issuerName }
+    this._stageTracker = {};      // docId -> { stage, issuerId, issuerName, documentTitle }
     this._recentEvents = {};      // dedup
     this.DEDUP_WINDOW_MS = 30_000;
   }
@@ -130,7 +131,7 @@ class ChainHandler {
         message: `Auto-assigned: ${nextStage.label} (Stage 2 of ${chain.length})`,
       });
 
-      this._stageTracker[key] = { stage: 1 };
+      this._stageTracker[key] = { stage: 1, documentTitle };
       return { action: "stage_advanced", stage: 1, label: nextStage.label, result };
     }
 
@@ -159,6 +160,7 @@ class ChainHandler {
       stage: "author_revision",
       issuerId: issuerInfo.issuer_id,
       issuerName: issuerInfo.issuer,
+      documentTitle,
     };
 
     return { action: "rejected_to_author", issuer: issuerInfo.issuer, result };
@@ -226,7 +228,7 @@ class ChainHandler {
         // NOTE: Audit trail is logged to stdout before deletion.
         // See paligo-client.js deleteAssignmentsForDocument() for details.
         try {
-          await this.paligo.deleteAssignmentsForDocument(documentId);
+          await this.paligo.deleteAssignmentsForDocument(documentId, tracker.documentTitle);
           console.log(`[chain] Assignments cleaned up`);
         } catch (err) {
           console.error(`[chain] Assignment cleanup failed:`, err.message);
