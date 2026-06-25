@@ -6,6 +6,7 @@
  *
  * v4: Assignment cleanup on completion, taxonomy removal on new cycle,
  *     audit logging before deletion.
+ * v4.1: Persistent audit logging to GitHub (audit-log.json).
  */
 
 require("dotenv").config();
@@ -99,7 +100,7 @@ app.get("/health", (req, res) => {
     status: "ok",
     service: "paligo-review-chain",
     instance: process.env.PALIGO_INSTANCE,
-    version: "4.0.0",
+    version: "4.1.0",
   });
 });
 
