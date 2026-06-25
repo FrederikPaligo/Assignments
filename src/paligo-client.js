@@ -1,7 +1,7 @@
 /**
  * Paligo REST API Client
  *
- * Handles authentication, assignment creation, taxonomy tagging,
+ * Handles authentication, assignment creation/deletion, taxonomy tagging,
  * and looking up the original issuer of an assignment.
  */
 
@@ -55,7 +55,7 @@ class PaligoClient {
     };
 
     const target = userId ? `user ${userId}` : `group ${groupId}`;
-    console.log(`[paligo] Creating ${type} assignment: "${label}" for document ${documentId} → ${target}`);
+    console.log(`[paligo] Creating ${type} assignment: "${label}" for document ${documentId} -> ${target}`);
     console.log(`[paligo]   Deadline: ${new Date(endDate * 1000).toISOString().split("T")[0]}`);
 
     try {
@@ -64,7 +64,7 @@ class PaligoClient {
         payload,
         { auth: this.auth }
       );
-      console.log(`[paligo] Assignment created successfully`);
+      console.log(`[paligo] Assignment created successfully (ID: ${response.data.id})`);
       return response.data;
     } catch (error) {
       const status = error.response?.status;
@@ -72,6 +72,83 @@ class PaligoClient {
       console.error(`[paligo] Failed to create assignment (HTTP ${status}):`, detail);
       throw new Error(`Paligo API error (${status}): ${JSON.stringify(detail)}`);
     }
+  }
+
+  /**
+   * Delete a single assignment by ID.
+   */
+  async deleteAssignment(assignmentId) {
+    console.log(`[paligo] Deleting assignment ${assignmentId}`);
+    try {
+      await axios.delete(
+        `${this.baseUrl}/assignments/${assignmentId}/`,
+        { auth: this.auth }
+      );
+      console.log(`[paligo] Assignment ${assignmentId} deleted`);
+    } catch (error) {
+      const status = error.response?.status;
+      console.error(`[paligo] Delete failed (${status}):`, error.response?.data || error.message);
+    }
+  }
+
+  /**
+   * Delete all assignments for a specific document.
+   *
+   * IMPORTANT: Before deleting, we log the full audit trail for each
+   * assignment (who created it, who was assigned, when, outcome).
+   * This is critical because Paligo has no separate audit log,
+   * so once assignments are deleted that history is gone from the UI.
+   *
+   * The audit data is logged to stdout (captured by Railway logs).
+   * For a more permanent solution, consider writing to an external store.
+   */
+  async deleteAssignmentsForDocument(documentId) {
+    console.log(`[paligo] Cleaning up assignments for document ${documentId}`);
+
+    const allAssignments = [];
+    let page = 1;
+    let totalPages = 1;
+
+    while (page <= totalPages) {
+      const resp = await axios.get(
+        `${this.baseUrl}/assignments/?page=${page}`,
+        { auth: this.auth }
+      );
+      allAssignments.push(...resp.data.assignments);
+      totalPages = resp.data.total_pages;
+      page++;
+    }
+
+    const docAssignments = allAssignments.filter(a => a.document_id === documentId);
+
+    if (docAssignments.length === 0) {
+      console.log(`[paligo] No assignments found for document ${documentId}`);
+      return;
+    }
+
+    // Log audit trail before deleting
+    console.log(`[audit] ========================================`);
+    console.log(`[audit] ASSIGNMENT AUDIT LOG - Document ${documentId}`);
+    console.log(`[audit] Timestamp: ${new Date().toISOString()}`);
+    console.log(`[audit] Total assignments to delete: ${docAssignments.length}`);
+    console.log(`[audit] ----------------------------------------`);
+    for (const a of docAssignments) {
+      console.log(`[audit] Assignment ID: ${a.id}`);
+      console.log(`[audit]   Type: ${a.type}`);
+      console.log(`[audit]   Issuer: ${a.issuer} (ID: ${a.issuer_id})`);
+      console.log(`[audit]   Created: ${new Date(a.created_at * 1000).toISOString()}`);
+      console.log(`[audit]   Message: ${a.message || "(none)"}`);
+      console.log(`[audit]   Status: ${JSON.stringify(a.user_statuses || [])}`);
+      console.log(`[audit] ----------------------------------------`);
+    }
+    console.log(`[audit] ========================================`);
+
+    // Now delete
+    for (const a of docAssignments) {
+      await this.deleteAssignment(a.id);
+    }
+
+    console.log(`[paligo] Deleted ${docAssignments.length} assignments for document ${documentId}`);
   }
 
   /**
@@ -142,7 +219,7 @@ class PaligoClient {
 
     const currentTaxonomies = (doc.data.taxonomies || []).map(t => t.id);
     if (currentTaxonomies.includes(taxonomyId)) {
-      console.log(`[paligo] Taxonomy already present — skipping`);
+      console.log(`[paligo] Taxonomy already present - skipping`);
       return doc.data;
     }
 
@@ -163,6 +240,43 @@ class PaligoClient {
 
     console.log(`[paligo] Taxonomy added successfully`);
     return updated.data;
+  }
+
+  /**
+   * Remove a taxonomy from a document.
+   * Used to clear the "Staging for Release" tag when a new review cycle starts.
+   */
+  async removeTaxonomyFromDocument(documentId, taxonomyId) {
+    console.log(`[paligo] Removing taxonomy ${taxonomyId} from document ${documentId}`);
+
+    const doc = await axios.get(
+      `${this.baseUrl}/documents/${documentId}/`,
+      { auth: this.auth }
+    );
+
+    const currentTaxonomies = (doc.data.taxonomies || []).map(t => t.id);
+    if (!currentTaxonomies.includes(taxonomyId)) {
+      console.log(`[paligo] Taxonomy not present - skipping`);
+      return doc.data;
+    }
+
+    const updatedTaxonomies = currentTaxonomies.filter(id => id !== taxonomyId);
+
+    // Unlock document first
+    await axios.put(
+      `${this.baseUrl}/documents/${documentId}/`,
+      { release_status: "STATUS_NOT_RELEASED" },
+      { auth: this.auth }
+    );
+
+    const result = await axios.put(
+      `${this.baseUrl}/documents/${documentId}/`,
+      { taxonomies: updatedTaxonomies },
+      { auth: this.auth }
+    );
+
+    console.log(`[paligo] Taxonomy removed successfully`);
+    return result.data;
   }
 
   async listGroups() {
