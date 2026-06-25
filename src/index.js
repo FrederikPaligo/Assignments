@@ -1,8 +1,11 @@
 /**
- * Paligo Review Chain Service v2
+ * Paligo Review Chain Service v4
  *
  * Receives ASSIGNMENT_USERSTATUS_CHANGED webhooks from Paligo
  * and handles approvals (advance chain) and rejections (revert chain).
+ *
+ * v4: Assignment cleanup on completion, taxonomy removal on new cycle,
+ *     audit logging before deletion.
  */
 
 require("dotenv").config();
@@ -11,7 +14,7 @@ const crypto = require("crypto");
 const PaligoClient = require("./paligo-client");
 const ChainHandler = require("./chain-handler");
 
-// ── Validate environment ──────────────────────────────────────────
+// -- Validate environment --
 const required = ["PALIGO_INSTANCE", "PALIGO_EMAIL", "PALIGO_API_KEY"];
 for (const key of required) {
   if (!process.env[key]) {
@@ -20,7 +23,7 @@ for (const key of required) {
   }
 }
 
-// ── Initialize ────────────────────────────────────────────────────
+// -- Initialize --
 const paligo = new PaligoClient({
   instance: process.env.PALIGO_INSTANCE,
   email: process.env.PALIGO_EMAIL,
@@ -33,7 +36,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// ── Webhook signature validation (optional) ───────────────────────
+// -- Webhook signature validation (optional) --
 function validateWebhook(req, res, next) {
   const secret = process.env.WEBHOOK_SECRET;
   if (!secret) {
@@ -65,10 +68,10 @@ function validateWebhook(req, res, next) {
   next();
 }
 
-// ── Webhook endpoint ──────────────────────────────────────────────
+// -- Webhook endpoint --
 app.post("/webhooks/review-approved", validateWebhook, async (req, res) => {
   const ts = new Date().toISOString();
-  console.log(`\n[webhook] ────────────────────────────────────────`);
+  console.log(`\n[webhook] ================================================`);
   console.log(`[webhook] Incoming at ${ts}`);
   console.log(`[webhook] Event: ${req.body.event}`);
   console.log(`[webhook] Payload:`, JSON.stringify(req.body, null, 2));
@@ -90,23 +93,23 @@ app.post("/webhooks/review-approved", validateWebhook, async (req, res) => {
   }
 });
 
-// ── Health check ──────────────────────────────────────────────────
+// -- Health check --
 app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     service: "paligo-review-chain",
     instance: process.env.PALIGO_INSTANCE,
-    version: "3.0.0",
+    version: "4.0.0",
   });
 });
 
-// ── Start ─────────────────────────────────────────────────────────
+// -- Start --
 app.listen(PORT, () => {
-  console.log(`\n[server] ═══════════════════════════════════════`);
-  console.log(`[server] Paligo Review Chain v3 on port ${PORT}`);
+  console.log(`\n[server] ================================================`);
+  console.log(`[server] Paligo Review Chain v4 on port ${PORT}`);
   console.log(`[server] Instance: ${process.env.PALIGO_INSTANCE}`);
   console.log(`[server] Endpoints:`);
   console.log(`[server]   POST /webhooks/review-approved  (webhook)`);
   console.log(`[server]   GET  /health`);
-  console.log(`[server] ═══════════════════════════════════════\n`);
+  console.log(`[server] ================================================\n`);
 });
