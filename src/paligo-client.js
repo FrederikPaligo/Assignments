@@ -2,7 +2,8 @@
  * Paligo REST API Client
  *
  * Handles authentication, assignment creation/deletion, taxonomy tagging,
- * and looking up the original issuer of an assignment.
+ * looking up the original issuer of an assignment, and persistent audit
+ * logging to GitHub.
  */
 
 const axios = require("axios");
@@ -99,10 +100,9 @@ class PaligoClient {
    * This is critical because Paligo has no separate audit log,
    * so once assignments are deleted that history is gone from the UI.
    *
-   * The audit data is logged to stdout (captured by Railway logs).
-   * For a more permanent solution, consider writing to an external store.
+   * The audit data is logged to stdout AND persisted to GitHub (audit-log.json).
    */
-  async deleteAssignmentsForDocument(documentId) {
+  async deleteAssignmentsForDocument(documentId, documentTitle) {
     console.log(`[paligo] Cleaning up assignments for document ${documentId}`);
 
     const allAssignments = [];
@@ -142,6 +142,9 @@ class PaligoClient {
       console.log(`[audit] ----------------------------------------`);
     }
     console.log(`[audit] ========================================`);
+
+    // Persist to GitHub
+    await this.logAuditToGitHub(documentId, documentTitle || "Unknown", docAssignments);
 
     // Now delete
     for (const a of docAssignments) {
@@ -277,6 +280,88 @@ class PaligoClient {
 
     console.log(`[paligo] Taxonomy removed successfully`);
     return result.data;
+  }
+
+  /**
+   * Log audit trail to a JSON file in the GitHub repo.
+   *
+   * Reads the existing audit-log.json, appends the new entry, and commits.
+   * If the file doesn't exist yet, it creates it.
+   *
+   * Requires env vars: GITHUB_TOKEN, GITHUB_REPO (e.g. "FrederikPaligo/Assignments")
+   */
+  async logAuditToGitHub(documentId, documentTitle, assignments) {
+    const token = process.env.GITHUB_TOKEN;
+    const repo = process.env.GITHUB_REPO;
+
+    if (!token || !repo) {
+      console.log(`[audit] GitHub logging skipped (GITHUB_TOKEN or GITHUB_REPO not set)`);
+      return;
+    }
+
+    const filePath = "audit-log.json";
+    const apiBase = `https://api.github.com/repos/${repo}/contents/${filePath}`;
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "paligo-review-chain",
+    };
+
+    // Build the new audit entry
+    const entry = {
+      timestamp: new Date().toISOString(),
+      documentId,
+      documentTitle,
+      assignmentsDeleted: assignments.map(a => ({
+        id: a.id,
+        type: a.type,
+        issuer: a.issuer,
+        issuerId: a.issuer_id,
+        created: new Date(a.created_at * 1000).toISOString(),
+        message: a.message || null,
+        userStatuses: a.user_statuses || [],
+      })),
+    };
+
+    try {
+      // Try to get the existing file
+      let existingEntries = [];
+      let sha = null;
+
+      try {
+        const existing = await axios.get(apiBase, { headers });
+        sha = existing.data.sha;
+        const content = Buffer.from(existing.data.content, "base64").toString("utf-8");
+        existingEntries = JSON.parse(content);
+      } catch (err) {
+        if (err.response?.status === 404) {
+          console.log(`[audit] audit-log.json not found in repo, creating it`);
+        } else {
+          throw err;
+        }
+      }
+
+      // Append new entry
+      existingEntries.push(entry);
+
+      // Commit updated file
+      const updatedContent = Buffer.from(
+        JSON.stringify(existingEntries, null, 2)
+      ).toString("base64");
+
+      const commitPayload = {
+        message: `audit: document ${documentId} - ${assignments.length} assignment(s) deleted`,
+        content: updatedContent,
+        ...(sha && { sha }),
+      };
+
+      await axios.put(apiBase, commitPayload, { headers });
+      console.log(`[audit] Audit entry committed to GitHub (${existingEntries.length} total entries)`);
+    } catch (err) {
+      // Non-fatal: log the error but don't break the workflow
+      console.error(`[audit] GitHub logging failed:`, err.response?.data?.message || err.message);
+      console.error(`[audit] Audit data was still logged to stdout above`);
+    }
   }
 
   async listGroups() {
